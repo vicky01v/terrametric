@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f5f6f2" />
+  <meta name="description" content="Measure areas and distances from KML and Shapefiles with CRS-aware accuracy." />
+  <title>TerraMetric — Geospatial workspace</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/"><span class="brand-mark"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M18 3.5 31 11v14L18 32.5 5 25V11L18 3.5Z"/><path d="m5 11 13 7.5L31 11M18 18.5v14M11.3 7.4l13 7.5M24.7 7.4l-13 7.5"/></svg></span><span>terra<span class="brand-light">metric</span><small>GEOSPATIAL WORKSPACE</small></span></a>
+    <div class="side-label">WORKSPACE</div>
+    <button class="nav-item active"><span class="nav-icon">⌖</span> Explorer <span class="nav-count" id="upload-count">0</span></button>
+    <div class="side-label recent-label">RECENT FILES <button id="refresh-files" title="Refresh">↻</button></div>
+    <div class="recent-list" id="recent-list"><div class="empty-recent">Your processed files<br/>will appear here.</div></div>
+    <div class="sidebar-bottom"><div class="status-dot"></div><span>LOCAL WORKSPACE</span><span class="api-status" id="api-status">CONNECTING</span></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong>Explorer</strong></div><div class="top-actions"><a href="/docs" target="_blank" class="api-link"><span class="tiny-pulse"></span> API DOCS <span>↗</span></a><div class="avatar">TM</div></div></header>
+    <section class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> SPATIAL ANALYSIS, MADE CLEAR</div><h1>Measure with <em>confidence.</em></h1><p class="intro">Drop in your geospatial data. Get accurate area and distance measurements, instantly.</p></div><div class="projection-chip"><span class="globe">◎</span><span>CRS AWARE<br/><b>PROJECTION ENABLED</b></span></div></section>
+
+    <section class="upload-zone" id="drop-zone">
+      <input id="file-input" type="file" accept=".kml,.zip,application/vnd.google-earth.kml+xml,application/zip" hidden />
+      <div class="upload-icon"><svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 32V9m0 0-9 9m9-9 9 9M9 31v8a3 3 0 0 0 3 3h24a3 3 0 0 0 3-3v-8"/></svg></div>
+      <div class="upload-copy"><h2>Drop your geospatial file here</h2><p>or <button class="browse" id="browse-button">browse files</button> to get started</p></div>
+      <div class="file-types"><span>.KML</span><span>.ZIP</span><i>Shapefile archive</i></div>
+      <div class="upload-progress" id="upload-progress"><div class="progress-head"><span id="progress-name">Processing file…</span><span id="progress-pct">0%</span></div><div class="progress-track"><span id="progress-bar"></span></div></div>
+    </section>
+    <div class="notice" id="notice" role="status"></div>
+
+    <section class="metrics" id="metrics">
+      <article class="metric-card"><div class="metric-top"><span class="metric-symbol area-symbol">▧</span><span class="metric-tag">TOTAL AREA</span><span class="metric-spark">↗</span></div><div class="metric-value" id="total-area">— <small>ha</small></div><div class="metric-foot"><span id="area-count">No polygon features</span><span class="metric-note">projected</span></div></article>
+      <article class="metric-card"><div class="metric-top"><span class="metric-symbol length-symbol">⌁</span><span class="metric-tag">TOTAL DISTANCE</span><span class="metric-spark">↗</span></div><div class="metric-value" id="total-length">— <small>km</small></div><div class="metric-foot"><span id="length-count">No line features</span><span class="metric-note">projected</span></div></article>
+      <article class="metric-card"><div class="metric-top"><span class="metric-symbol feature-symbol">⊞</span><span class="metric-tag">FEATURES</span><span class="metric-spark">·</span></div><div class="metric-value" id="feature-count">—</div><div class="metric-foot"><span id="geometry-counts">Waiting for a file</span><span class="metric-note">total records</span></div></article>
+      <article class="metric-card crs-card"><div class="metric-top"><span class="metric-symbol crs-symbol">◎</span><span class="metric-tag">SOURCE CRS</span><span class="crs-check">✓</span></div><div class="metric-value crs-value" id="source-crs">—</div><div class="metric-foot"><span>Measurement CRS</span><span class="metric-note" id="measurement-crs">—</span></div></article>
+    </section>
+
+    <section class="workspace-grid">
+      <article class="panel map-panel"><header class="panel-heading"><div><div class="panel-overline">GEOGRAPHIC CONTEXT</div><h3>Feature map</h3></div><div class="map-legend"><span><i class="legend-area"></i> Area</span><span><i class="legend-line"></i> Line</span><span><i class="legend-point"></i> Point</span></div></header><div id="map"><div class="map-empty" id="map-empty"><div class="map-empty-icon">⌖</div><b>Your map will appear here</b><span>Upload a file to see its features</span></div></div><div class="map-caption"><span><i></i> <span id="map-label">NO DATA LOADED</span></span><span class="map-attribution">© OpenStreetMap</span></div></article>
+      <article class="panel details-panel"><header class="panel-heading"><div><div class="panel-overline">FILE OVERVIEW</div><h3>Dataset details</h3></div><span class="file-status" id="file-status">IDLE</span></header><div class="detail-list"><div class="detail-row"><span>File name</span><b id="detail-filename">—</b></div><div class="detail-row"><span>Uploaded</span><b id="detail-date">—</b></div><div class="detail-row"><span>Source reference</span><b class="mono" id="detail-source-crs">—</b></div><div class="detail-row"><span>Area projection</span><b class="mono" id="detail-area-crs">—</b></div><div class="detail-row"><span>Distance projection</span><b class="mono" id="detail-length-crs">—</b></div></div><div class="quality-box"><span class="quality-check">✓</span><div><b>Measurement ready</b><p>Coordinates projected before calculating.</p></div></div><button id="download-button" class="download-button" disabled><span>↓</span> Download GeoJSON</button></article>
+    </section>
+
+    <section class="panel table-panel"><header class="panel-heading table-heading"><div><div class="panel-overline">FEATURE INSPECTOR</div><h3>Measurements <span class="table-total" id="table-total">0</span></h3></div><div class="table-controls"><label class="search-box"><span>⌕</span><input id="search-input" placeholder="Search properties…" /></label><select id="type-filter"><option value="all">All geometry</option><option>Polygon</option><option>MultiPolygon</option><option>LineString</option><option>MultiLineString</option><option>Point</option></select></div></header><div class="table-scroll"><table><thead><tr><th>FEATURE</th><th>GEOMETRY</th><th>NAME / PROPERTIES</th><th>MEASUREMENT</th><th>CRS</th></tr></thead><tbody id="feature-rows"><tr class="table-placeholder"><td colspan="5"><span class="placeholder-mark">⌖</span> Upload a file to inspect its feature measurements</td></tr></tbody></table></div><footer class="table-footer"><span id="table-summary">Showing 0 features</span><div class="pagination"><button id="prev-page" disabled>←</button><span id="page-display">1 / 1</span><button id="next-page" disabled>→</button></div></footer></section>
+    <footer class="app-footer"><span>BUILT FOR BETTER SPATIAL DECISIONS</span><span>TerraMetric <b>·</b> v1.0</span></footer>
+  </main>
+  <div class="toast" id="toast"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

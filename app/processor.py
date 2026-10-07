@@ -10,7 +10,7 @@ from collections import Counter
 from pathlib import PurePosixPath
 from typing import Any
 
-import fiona
+import shapefile
 from pyproj import CRS, Transformer
 from pyproj.exceptions import CRSError
 from shapely import make_valid
@@ -203,17 +203,24 @@ def _read_layers(filename: str, payload: bytes) -> list[tuple[str, list[dict[str
         feature_total = 0
         for layer_name, path in sources:
             try:
-                with fiona.open(path) as collection:
+                with shapefile.Reader(path, encoding="utf-8", encodingErrors="replace") as collection:
                     records = []
-                    for feature in collection:
-                        geometry_data = feature.get("geometry")
-                        geom = shape(geometry_data) if geometry_data else None
-                        props = {str(k): _json_value(v) for k, v in (feature.get("properties") or {}).items()}
+                    field_names = [field[0] for field in collection.fields[1:]]
+                    for feature in collection.iterShapeRecords():
+                        try:
+                            geometry_data = feature.shape.__geo_interface__ if feature.shape.shapeType else None
+                            geom = shape(geometry_data) if geometry_data else None
+                        except Exception:
+                            # Preserve an unconvertible feature in the response as unmeasured.
+                            geom = None
+                        props = {str(k): _json_value(v) for k, v in zip(field_names, feature.record)}
                         records.append({"geometry": geom, "properties": props})
                         if feature_total + len(records) > MAX_FEATURES:
                             raise ProcessingError(f"The upload exceeds the {MAX_FEATURES:,} feature limit.")
                     feature_total += len(records)
-                    raw_crs = collection.crs_wkt or collection.crs
+                    path_by_lower = {candidate.name.lower(): candidate for candidate in Path(path).parent.iterdir()}
+                    prj = path_by_lower.get(f"{Path(path).stem.lower()}.prj")
+                    raw_crs = prj.read_text(errors="replace") if prj else None
                     try:
                         crs = CRS.from_user_input(raw_crs) if raw_crs else None
                     except CRSError:

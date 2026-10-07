@@ -22,7 +22,7 @@ Run the app locally, open [http://127.0.0.1:8000](http://127.0.0.1:8000), then c
 
 ## Run locally
 
-Python 3.11+ is recommended. Fiona uses GDAL-backed drivers for KML and Shapefile support.
+Python 3.11+ is recommended. KML is parsed with Python's XML library; Shapefiles are read with PyShp, so the local setup does not require a system GDAL installation.
 
 ```bash
 python -m venv .venv
@@ -105,14 +105,14 @@ Example response shape:
 
 ## Architecture
 
-The browser is a lightweight static workbench. FastAPI validates requests and coordinates processing. Fiona reads the source formats, Shapely repairs and measures feature geometry, PyProj selects and applies projections, and SQLite stores processed records. Original uploads are not retained.
+The browser is a lightweight static workbench. FastAPI validates requests and coordinates processing. The built-in KML reader and PyShp read source features, Shapely repairs and measures geometry, PyProj selects and applies projections, and SQLite stores processed records. Original uploads are not retained.
 
 ```mermaid
 flowchart LR
     U[Analyst] -->|KML or zipped Shapefile| W[TerraMetric workbench]
     W -->|multipart upload| A[FastAPI API]
     A --> V[File and archive validation]
-    V --> P[Fiona layer reader]
+    V --> P[KML XML / PyShp reader]
     P --> G[Shapely geometry normalization]
     G --> C[PyProj CRS selection and transformation]
     C --> M[Area, length, and feature metadata]
@@ -130,7 +130,7 @@ sequenceDiagram
     actor User
     participant UI as Workbench
     participant API as FastAPI
-    participant Processor as Fiona + Shapely + PyProj
+    participant Processor as KML XML + PyShp + Shapely + PyProj
     participant DB as SQLite
     User->>UI: Select KML or Shapefile ZIP
     UI->>API: POST /api/files/
@@ -173,7 +173,7 @@ flowchart TD
 flowchart LR
     B[Browser] -->|HTTP :8000| C[TerraMetric container]
     C --> F[FastAPI + static workbench]
-    F --> X[Fiona / GDAL]
+    F --> X[KML XML + PyShp]
     F --> Y[Shapely + PyProj]
     F --> Z[(SQLite file)]
     Z --- V[(Docker named volume)]

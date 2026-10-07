@@ -38,6 +38,11 @@
       const response = await fetch('/api/files/?limit=30');
       if (!response.ok) throw new Error();
       const data = await response.json();
+      const overview = await fetch('/api/summary/').then(r => r.json());
+      $('library-files').textContent = `${formatNumber(overview.file_count, 0)} ${overview.file_count === 1 ? 'dataset' : 'datasets'}`;
+      $('library-features').textContent = `${formatNumber(overview.feature_count, 0)} features processed`;
+      $('library-area').textContent = `${formatNumber(overview.area_hectares, 2)} ha mapped`;
+      $('library-length').textContent = `${formatNumber(overview.length_km, 2)} km measured`;
       $('api-status').textContent = 'CONNECTED';
       $('upload-count').textContent = data.files.length;
       const list = $('recent-list');
@@ -62,6 +67,8 @@
       $('geometry-counts').textContent = Object.entries(file.geometry_counts).map(([k,v]) => `${formatNumber(v,0)} ${k}`).join(' · ');
       $('map-label').textContent = `${file.feature_count} FEATURES · ${file.crs}`;
       $('download-button').disabled = false;
+      $('csv-button').disabled = false;
+      $('delete-button').disabled = false;
       const warnings = file.warnings || [];
       if (warnings.length) showNotice(warnings.join(' '), false); else showNotice('Dataset processed successfully. Coordinates were projected before area and distance calculations.', true);
       await Promise.all([loadMeasurements(), loadMap()]);
@@ -99,7 +106,7 @@
       body.innerHTML = `<tr class="table-placeholder"><td colspan="5"><span class="placeholder-mark">⌕</span>No features match these filters</td></tr>`;
       return;
     }
-    body.innerHTML = result.features.map(f => `<tr><td><span class="feature-id">#${String(f.id).padStart(3, '0')}</span></td><td><span class="geometry-pill ${geomClass(f.geometry_type)}"><i></i>${escapeHtml(f.geometry_type)}</span></td><td title="${escapeHtml(activeProperties(f.properties))}">${escapeHtml(activeProperties(f.properties))}</td><td class="measure-cell">${displayMeasurement(f)}</td><td><span class="feature-id">${escapeHtml(f.crs)}</span></td></tr>`).join('');
+    body.innerHTML = result.features.map(f => `<tr data-feature-id="${f.id}"><td><span class="feature-id">#${String(f.id).padStart(3, '0')}</span></td><td><span class="geometry-pill ${geomClass(f.geometry_type)}"><i></i>${escapeHtml(f.geometry_type)}</span></td><td title="${escapeHtml(activeProperties(f.properties))}">${escapeHtml(activeProperties(f.properties))}</td><td class="measure-cell">${displayMeasurement(f)}</td><td><span class="feature-id">${escapeHtml(f.crs)}</span></td></tr>`).join('');
   }
 
   async function loadMap() {
@@ -153,6 +160,33 @@
     finally { setTimeout(() => progress.classList.remove('show'), 650); zone.classList.remove('busy'); }
   }
 
+  async function loadDemo() {
+    const button = $('demo-button');
+    button.disabled = true; button.textContent = 'Loading sample…';
+    try {
+      const response = await fetch('/api/demo/', { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || 'Could not load the demo dataset.');
+      await selectFile(result.id);
+      toast('Sample survey loaded · 3 parcels, 2 trails and a field station');
+    } catch (error) { toast(error.message || 'Could not load the demo dataset.'); }
+    finally { button.disabled = false; button.textContent = '✦ Try demo'; }
+  }
+
+  async function inspectFeature(featureId) {
+    if (!state.file) return;
+    try {
+      const response = await fetch(`/api/files/${encodeURIComponent(state.file.id)}/features/${featureId}/`);
+      if (!response.ok) throw new Error('Could not load feature details.');
+      const feature = await response.json();
+      $('dialog-title').textContent = `Feature #${String(feature.id).padStart(3, '0')} · ${feature.properties?.Name || feature.properties?.name || feature.geometry_type}`;
+      const measurement = feature.measurement ? `${formatNumber(feature.measurement.value, 3)} ${feature.measurement.unit}` : (feature.measurement_note || 'Not measured');
+      const propertyRows = Object.entries(feature.properties || {}).map(([key,value]) => `<tr><th>${escapeHtml(prettyName(key))}</th><td>${escapeHtml(typeof value === 'object' ? JSON.stringify(value) : value ?? '—')}</td></tr>`).join('');
+      $('feature-detail').innerHTML = `<div class="feature-summary"><span>${escapeHtml(feature.geometry_type)}</span><span>${escapeHtml(measurement)}</span><span>${escapeHtml(feature.crs)}</span></div>${propertyRows ? `<table class="property-table"><tbody>${propertyRows}</tbody></table>` : '<p class="property-empty">No properties on this feature.</p>'}`;
+      $('feature-dialog').showModal();
+    } catch (error) { toast(error.message || 'Could not load feature details.'); }
+  }
+
   $('browse-button').addEventListener('click', () => $('file-input').click());
   $('file-input').addEventListener('change', event => { handleFiles(event.target.files); event.target.value = ''; });
   const drop = $('drop-zone');
@@ -162,6 +196,26 @@
   $('recent-list').addEventListener('click', event => { const item = event.target.closest('.recent-file'); if (item) selectFile(item.dataset.id); });
   $('refresh-files').addEventListener('click', refreshRecent);
   $('download-button').addEventListener('click', () => { if (state.file) window.location.href = `${state.file.geojson_url}?download=true`; });
+  $('csv-button').addEventListener('click', () => { if (state.file) window.location.href = `/api/files/${encodeURIComponent(state.file.id)}/measurements.csv`; });
+  $('demo-button').addEventListener('click', loadDemo);
+  $('delete-button').addEventListener('click', async () => {
+    if (!state.file || !window.confirm(`Permanently delete ${state.file.filename} and its processed measurements?`)) return;
+    const response = await fetch(`/api/files/${encodeURIComponent(state.file.id)}/`, { method: 'DELETE' });
+    if (!response.ok) { toast('Could not delete this dataset.'); return; }
+    state.file = null; state.layer && map?.removeLayer(state.layer); state.layer = null;
+    $('feature-rows').innerHTML = '<tr class="table-placeholder"><td colspan="5"><span class="placeholder-mark">⌖</span>Upload a file to inspect its feature measurements</td></tr>';
+    $('table-total').textContent = '0'; $('table-summary').textContent = 'Showing 0 features';
+    $('feature-count').textContent = '—'; $('total-area').innerHTML = '— <small>ha</small>'; $('total-length').innerHTML = '— <small>km</small>';
+    $('source-crs').textContent = '—'; $('detail-filename').textContent = '—'; $('detail-date').textContent = '—';
+    $('detail-source-crs').textContent = '—'; $('detail-area-crs').textContent = '—'; $('detail-length-crs').textContent = '—'; $('measurement-crs').textContent = '—';
+    $('file-status').textContent = 'IDLE'; $('file-status').classList.remove('ready');
+    $('download-button').disabled = true; $('csv-button').disabled = true; $('delete-button').disabled = true;
+    $('map-empty').style.display = ''; $('map-label').textContent = 'NO DATA LOADED';
+    await refreshRecent(); toast('Dataset deleted.');
+  });
+  $('feature-rows').addEventListener('click', event => { const row = event.target.closest('tr[data-feature-id]'); if (row) inspectFeature(row.dataset.featureId); });
+  $('dialog-close').addEventListener('click', () => $('feature-dialog').close());
+  $('feature-dialog').addEventListener('click', event => { if (event.target === $('feature-dialog')) $('feature-dialog').close(); });
   $('prev-page').addEventListener('click', () => { if (state.page > 1) { state.page--; loadMeasurements(); } });
   $('next-page').addEventListener('click', () => { if (state.page < state.pages) { state.page++; loadMeasurements(); } });
   $('type-filter').addEventListener('change', event => { state.type = event.target.value; state.page = 1; loadMeasurements(); });

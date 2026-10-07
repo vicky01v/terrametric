@@ -97,6 +97,30 @@ def filtered_features(file_id: str, geometry_type: str | None = None, search: st
     return features
 
 
+def get_feature(file_id: str, feature_id: int) -> dict[str, Any] | None:
+    with connect() as db:
+        row = db.execute("SELECT body FROM features WHERE file_id=? AND feature_id=?", (file_id, feature_id)).fetchone()
+    return json.loads(row["body"]) if row else None
+
+
+def dashboard_summary() -> dict[str, Any]:
+    with connect() as db:
+        counts = db.execute("SELECT COUNT(*) AS files, COALESCE(SUM(feature_count), 0) AS features FROM files").fetchone()
+        rows = db.execute("SELECT body FROM features").fetchall()
+    area_m2 = length_m = 0.0
+    for row in rows:
+        measurement = json.loads(row["body"])["measurement"]
+        if measurement and measurement["kind"] == "area":
+            area_m2 += measurement["value"]
+        elif measurement and measurement["kind"] == "length":
+            length_m += measurement["value"]
+    return {
+        "file_count": counts["files"], "feature_count": counts["features"],
+        "area_m2": area_m2, "area_hectares": area_m2 / 10000,
+        "length_m": length_m, "length_km": length_m / 1000,
+    }
+
+
 def delete_file(file_id: str) -> bool:
     with connect() as db:
         cursor = db.execute("DELETE FROM files WHERE id=?", (file_id,))

@@ -1,0 +1,13 @@
+services:
+  terrametric:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      TERRAMETRIC_DATA_DIR: /app/data
+    volumes:
+      - terrametric-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  terrametric-data:

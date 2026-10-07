@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Northstar Reserve survey</name>
+    <Placemark><name>North Meadow</name><description>Restoration block A</description><Polygon><outerBoundaryIs><LinearRing><coordinates>-105.2580,39.7420,0 -105.2535,39.7420,0 -105.2535,39.7450,0 -105.2580,39.7450,0 -105.2580,39.7420,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+    <Placemark><name>Creekside Plot</name><description>Riparian buffer survey</description><Polygon><outerBoundaryIs><LinearRing><coordinates>-105.2525,39.7405,0 -105.2488,39.7405,0 -105.2488,39.7431,0 -105.2525,39.7431,0 -105.2525,39.7405,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+    <Placemark><name>South Ridge</name><description>Monitoring parcel C</description><Polygon><outerBoundaryIs><LinearRing><coordinates>-105.2590,39.7370,0 -105.2540,39.7370,0 -105.2540,39.7390,0 -105.2590,39.7390,0 -105.2590,39.7370,0</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>
+    <Placemark><name>Creek Trail</name><description>Primary walking route</description><LineString><coordinates>-105.2600,39.7450,0 -105.2570,39.7430,0 -105.2530,39.7420,0 -105.2490,39.7410,0</coordinates></LineString></Placemark>
+    <Placemark><name>Ridge Access</name><description>Secondary access path</description><LineString><coordinates>-105.2560,39.7390,0 -105.2530,39.7380,0 -105.2490,39.7370,0</coordinates></LineString></Placemark>
+    <Placemark><name>Field Station</name><description>Survey reference point</description><Point><coordinates>-105.2548,39.7412,0</coordinates></Point></Placemark>
+  </Document>
+</kml>

@@ -3,12 +3,14 @@ from __future__ import annotations
 import math
 import os
 import re
+import csv
+import io
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pyproj import CRS, Transformer
 from shapely.geometry import mapping, shape
@@ -18,6 +20,7 @@ from app import store
 from app.processor import MAX_UPLOAD_BYTES, ProcessingError, process_upload
 
 STATIC = Path(__file__).parent / "static"
+DEMO_FILE = Path(__file__).parent.parent / "examples" / "reserve-survey.kml"
 
 
 @asynccontextmanager
@@ -34,6 +37,16 @@ app = FastAPI(
 origins = [origin.strip() for origin in os.environ.get("TERRAMETRIC_CORS_ORIGINS", "").split(",") if origin.strip()]
 if origins:
     app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "DELETE"], allow_headers=["*"])
+
+
+@app.get("/healthz", tags=["System"])
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/summary/", tags=["Files"])
+async def dashboard_summary():
+    return store.dashboard_summary()
 
 
 @app.get("/", include_in_schema=False)
@@ -61,6 +74,15 @@ async def upload_file(file: UploadFile = File(...)):
         import logging
         logging.getLogger(__name__).exception("Upload processing failed")
         raise HTTPException(500, "The upload could not be processed. Check that its contents are valid and try again.") from exc
+
+
+@app.post("/api/demo/", status_code=201, tags=["Files"])
+async def load_demo():
+    try:
+        result = process_upload(DEMO_FILE.name, DEMO_FILE.read_bytes())
+        return store.create("reserve-survey.kml", result)
+    except ProcessingError as exc:
+        raise HTTPException(500, "The bundled demo dataset could not be processed.") from exc
 
 
 @app.get("/api/files/", tags=["Files"])
@@ -105,6 +127,36 @@ async def measurements(
         "pagination": {"page": page, "page_size": page_size, "total": len(features), "pages": math.ceil(len(features) / page_size)},
         "totals": {**totals, "area_hectares": totals["area_m2"] / 10000, "length_km": totals["length_m"] / 1000, **counts},
     }
+
+
+@app.get("/api/files/{file_id}/features/{feature_id}/", tags=["Measurements"])
+async def feature_detail(file_id: str, feature_id: int):
+    if not store.get_file(file_id):
+        raise HTTPException(404, "File not found.")
+    feature = store.get_feature(file_id, feature_id)
+    if not feature:
+        raise HTTPException(404, "Feature not found.")
+    return feature
+
+
+@app.get("/api/files/{file_id}/measurements.csv", tags=["Measurements"])
+async def measurements_csv(file_id: str):
+    record = store.get_file(file_id)
+    if not record:
+        raise HTTPException(404, "File not found.")
+    output = io.StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["feature_id", "layer", "geometry_type", "measurement_kind", "value", "unit", "hectares", "kilometres", "crs", "properties", "note"])
+    for feature in store.filtered_features(file_id):
+        measurement = feature["measurement"] or {}
+        writer.writerow([
+            feature["id"], feature["layer"], feature["geometry_type"], measurement.get("kind", ""),
+            measurement.get("value", ""), measurement.get("unit", ""),
+            measurement.get("hectares", ""), measurement.get("kilometres", ""), feature["crs"],
+            __import__("json").dumps(feature["properties"], ensure_ascii=False), feature["measurement_note"] or "",
+        ])
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", Path(record["filename"]).stem) or "measurements"
+    return Response(output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{safe_stem}-measurements.csv"'})
 
 
 @app.get("/api/files/{file_id}/geojson/", tags=["Measurements"])

@@ -1,83 +1,232 @@
 # TerraMetric
 
-**Turn geospatial files into measurements you can trust.** TerraMetric is a small, self-hostable FastAPI application for inspecting KML and zipped Shapefiles. It calculates polygon area and line length only after projecting coordinates into metres, and presents the results on an interactive map.
+**A geospatial measurement workspace for KML and Shapefiles.** Upload a survey, inspect every feature on a map, and get area and distance measurements in real-world units. TerraMetric projects geographic coordinates before measuring, keeps a searchable local history, and exports clean WGS 84 GeoJSON or analysis-ready CSV.
+
+## Demo
+
+Run the app locally, open [http://127.0.0.1:8000](http://127.0.0.1:8000), then choose **Try demo**. The bundled Northstar Reserve survey contains three parcels, two paths, and one field station. It demonstrates polygon area, line length, point handling, map styling, feature inspection, and downloads without needing a data file.
+
+## Features
+
+- KML and ZIP uploads containing one or more Shapefile layers
+- Interactive Leaflet map, fit-to-data view, geometry styling, and feature popups
+- Projected polygon area in m² and hectares; line length in m and km
+- Source CRS, measurement CRS, and missing or unsupported geometry warnings
+- Workspace-wide totals and per-dataset geometry summaries
+- Searchable, geometry-filterable, paginated feature table
+- Click any feature for its complete attributes and measurement details
+- GeoJSON export transformed to WGS 84, plus CSV measurement export
+- Built-in demo survey, recent dataset history, and dataset deletion
+- FastAPI OpenAPI page, SQLite persistence, Docker image, and Compose setup
+- Upload and archive limits, ZIP path validation, geometry repair, and transactional writes
 
 ## Run locally
 
-Python 3.11+ is recommended.
+Python 3.11+ is recommended. Fiona uses GDAL-backed drivers for KML and Shapefile support.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate       # Windows: .venv\Scripts\activate
+source .venv/bin/activate       # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Open [http://127.0.0.1:8000](http://127.0.0.1:8000) for the workbench, or [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) for interactive API docs. Data is stored in `data/terrametric.sqlite3`; set `TERRAMETRIC_DATA_DIR` to change the storage directory.
+Open the workbench at [http://127.0.0.1:8000](http://127.0.0.1:8000), API docs at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), and health check at [http://127.0.0.1:8000/healthz](http://127.0.0.1:8000/healthz). SQLite data is stored in `data/terrametric.sqlite3`; set `TERRAMETRIC_DATA_DIR` to change the location. Set `TERRAMETRIC_CORS_ORIGINS` to a comma-separated allowlist only when serving the API from a separate frontend origin.
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+Compose publishes port `8000`, persists the SQLite database in a named volume, and includes a container health check. To stop the app, run `docker compose down`; the volume remains unless explicitly removed.
 
 ## API
 
-### `POST /api/files/`
+All request and response bodies use JSON except multipart uploads and CSV downloads. Interactive OpenAPI docs are available at `/docs`.
 
-Upload a `.kml` file or a `.zip` containing one or more Shapefile layers (`.shp`, `.shx`, `.dbf`, and preferably `.prj`). Multipart field: `file`.
+### Workspace and demo
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/healthz` | Liveness check |
+| `GET` | `/api/summary/` | Workspace totals across all stored datasets |
+| `GET` | `/api/files/?limit=20` | Recent uploads; `limit` is 1–100 |
+| `POST` | `/api/demo/` | Process and save the bundled Northstar Reserve sample |
+
+### Upload and dataset
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/files/` | Upload a `.kml` file or `.zip` Shapefile archive (`file` multipart field) |
+| `GET` | `/api/files/{id}/` | Dataset metadata, CRS, status, warnings, and geometry counts |
+| `DELETE` | `/api/files/{id}/` | Permanently delete the dataset and its processed features |
+
+Example upload:
 
 ```bash
 curl -F 'file=@survey.kml' http://127.0.0.1:8000/api/files/
 ```
 
-Returns `201 Created` with the file record, feature count, detected CRS, warnings, and links to the measurements and GeoJSON endpoints.
+Shapefile ZIPs should contain `.shp`, `.shx`, and `.dbf`; a `.prj` is strongly recommended. A successful upload returns `201 Created` and a dataset record with measurement and GeoJSON links. Unsupported or malformed input returns a clear `4xx` response.
 
-### `GET /api/files/{id}/`
+### Feature measurements and exports
 
-Returns file metadata, processing status, and summary counts by geometry type.
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/files/{id}/measurements/` | Paginated feature details and filtered aggregate totals |
+| `GET` | `/api/files/{id}/features/{feature_id}/` | Full details for one feature |
+| `GET` | `/api/files/{id}/geojson/` | WGS 84 GeoJSON FeatureCollection |
+| `GET` | `/api/files/{id}/geojson/?download=true` | Download GeoJSON as an attachment |
+| `GET` | `/api/files/{id}/measurements.csv` | Download per-feature measurements and properties as CSV |
 
-### `GET /api/files/{id}/measurements/`
+Measurements accepts `page` (default `1`), `page_size` (default `100`, maximum `500`), `geometry_type`, and `search` (matches feature properties). Every feature includes its id, layer, geometry type, source CRS, geometry, properties, and measurement. Unsupported types and points return `measurement: null` plus a note instead of failing the dataset.
 
-Returns per-feature geometry type, original geometry, CRS, properties, and measurement. Polygon area is reported in square metres and hectares; line length in metres and kilometres. Point features and unsupported geometries remain in the response with a clear `measurement: null` and reason.
+Example response shape:
 
-Optional query parameters: `page` (default `1`), `page_size` (default `100`, max `500`), `geometry_type`, and `search` (matches feature properties). The response includes pagination metadata and aggregate totals for the filtered result set.
-
-### `GET /api/files/{id}/geojson/`
-
-Returns all processed features as a GeoJSON FeatureCollection, suitable for mapping or download.
-
-### `GET /api/files/`
-
-Lists recent uploads. `DELETE /api/files/{id}/` deletes a record and its processed features.
+```json
+{
+  "pagination": {"page": 1, "page_size": 100, "total": 6, "pages": 1},
+  "totals": {
+    "area_m2": 12345.0, "area_hectares": 1.2345,
+    "length_m": 678.0, "length_km": 0.678,
+    "area_features": 3, "length_features": 2, "unmeasured_features": 1
+  },
+  "features": [
+    {
+      "id": 1, "layer": "KML", "geometry_type": "Polygon", "crs": "EPSG:4326",
+      "properties": {"Name": "North Meadow"},
+      "measurement": {"kind": "area", "value": 12345.0, "unit": "m²", "hectares": 1.2345},
+      "measurement_note": null
+    }
+  ]
+}
+```
 
 ## Architecture
 
-- `app/main.py` defines the HTTP API, request validation, CORS policy, and static workbench.
-- `app/processor.py` validates archives, reads KML/Shapefile layers through Fiona, transforms geometries, and calculates measurements.
-- `app/store.py` persists file metadata and feature records in SQLite. The original upload is not retained.
-- `app/static/` contains the single-page workbench, with an interactive Leaflet map and searchable measurement table.
+The browser is a lightweight static workbench. FastAPI validates requests and coordinates processing. Fiona reads the source formats, Shapely repairs and measures feature geometry, PyProj selects and applies projections, and SQLite stores processed records. Original uploads are not retained.
 
-The upload flow validates the extension, size, archive paths and required Shapefile companions; processes each layer; then stores a completed record and its feature measurements transactionally. Processing errors return a useful `422` response and do not leave a half-created record.
+```mermaid
+flowchart LR
+    U[Analyst] -->|KML or zipped Shapefile| W[TerraMetric workbench]
+    W -->|multipart upload| A[FastAPI API]
+    A --> V[File and archive validation]
+    V --> P[Fiona layer reader]
+    P --> G[Shapely geometry normalization]
+    G --> C[PyProj CRS selection and transformation]
+    C --> M[Area, length, and feature metadata]
+    M --> D[(SQLite dataset store)]
+    D -->|measurements, summary, details| A
+    D -->|GeoJSON / CSV| A
+    A --> W
+    W --> L[Leaflet map and feature inspector]
+```
+
+### Processing flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Workbench
+    participant API as FastAPI
+    participant Processor as Fiona + Shapely + PyProj
+    participant DB as SQLite
+    User->>UI: Select KML or Shapefile ZIP
+    UI->>API: POST /api/files/
+    API->>API: Check type, 50 MiB limit, and safe filename
+    API->>Processor: Validate ZIP members and read each layer
+    Processor->>Processor: Normalize geometries and identify source CRS
+    Processor->>Processor: Project to metre-based CRS and measure
+    Processor-->>API: Features, totals, CRS, and warnings
+    API->>DB: Store dataset and features in one transaction
+    DB-->>API: Dataset id and metadata
+    API-->>UI: 201 Created
+    UI->>API: Request measurements and WGS 84 GeoJSON
+    API-->>UI: Table data, map features, and export links
+```
+
+### CRS and measurement flow
+
+```mermaid
+flowchart TD
+    S[Read source CRS] --> Q{CRS declared?}
+    Q -->|No| W[Assume WGS 84 and return warning]
+    Q -->|Yes| G{Geographic coordinates?}
+    W --> G
+    G -->|Yes| E{Dataset footprint}
+    E -->|Regional| U[Estimate local UTM]
+    E -->|Polar| P[Use polar stereographic CRS]
+    E -->|Broad| A[Equal-area CRS for area; local projection for length]
+    G -->|Projected| L[Use declared projected CRS]
+    U --> T[Transform coordinates before measurement]
+    P --> T
+    A --> T
+    L --> T
+    T --> M[Calculate polygon area and line length]
+    M --> O[Convert to m², hectares, metres, and kilometres]
+```
+
+### Deployment layout
+
+```mermaid
+flowchart LR
+    B[Browser] -->|HTTP :8000| C[TerraMetric container]
+    C --> F[FastAPI + static workbench]
+    F --> X[Fiona / GDAL]
+    F --> Y[Shapely + PyProj]
+    F --> Z[(SQLite file)]
+    Z --- V[(Docker named volume)]
+    H[Docker health check] -->|GET /healthz| F
+```
 
 ## CRS and measurement decisions
 
-Coordinates are never measured directly in longitude/latitude degrees. The source CRS is read from the file (KML defaults to EPSG:4326). For geographic data, a local UTM CRS is estimated from the combined dataset extent, with polar stereographic fallbacks; datasets too broad for local UTM use global equal-area EPSG:6933 for area and a local projection for length. Projected sources with linear units are converted to metres. Missing CRS is reported as a warning and treated as WGS84, the practical convention for KML and many unlabeled field files.
+Coordinates are never measured directly in longitude/latitude degrees. The source CRS is read from the file; KML normally declares EPSG:4326. Geographic datasets use a regional UTM projection, a polar stereographic projection at high latitudes, or an equal-area projection for broad area calculations. Length uses a local projection. Projected source units are converted to metres. If a CRS is missing, coordinates are assumed to be WGS 84 and a warning is returned; verify this assumption for unlabeled data.
 
-Measurements use Shapely planar geometry operations after PyProj transformation. This gives predictable local measurements without measuring degrees, while avoiding the extra complexity of ellipsoidal geodesics for the typical survey footprint. Very large datasets crossing projection zones should be divided into regional layers for best distance accuracy.
+Measurements use planar Shapely operations after PyProj transforms the geometry. This is accurate for ordinary regional survey footprints and avoids the complexity of ellipsoidal geodesics. Very large line datasets crossing projection zones should be split by region for best distance accuracy. GeoJSON exports transform geometries to WGS 84 as required by common GeoJSON clients.
 
-Uploads are limited to 50 MiB. Shapefile ZIPs are inspected before reading; archive paths are never extracted to disk. Geometry is repaired with `make_valid` when possible. Invalid individual features and unsupported measurement types produce warnings or null measurements instead of stopping the whole file.
+## Limits and safety
 
-## Design decisions
+- Upload limit: 50 MiB; uncompressed archive limit: 250 MiB
+- ZIP limit: 500 members and 20 Shapefile layers
+- Feature limit: 100,000 per upload
+- Archive paths are validated; files are materialized only in a temporary directory
+- Geometry repair is attempted per feature; unsupported geometries are retained with no measurement
+- SQLite writes are transactional; failed processing does not leave a partial dataset
+- `DELETE` removes a dataset and its features permanently
 
-FastAPI was selected for typed request handling, async-ready APIs, and generated OpenAPI docs. SQLite keeps local setup friction low while preserving results across restarts; it can be replaced by PostgreSQL/PostGIS plus object storage for multi-user deployments. Fiona provides mature GDAL-backed KML and Shapefile support. A bundled server-rendered workbench avoids a separate frontend build chain.
+## Project layout
+
+```text
+app/
+  main.py             FastAPI routes, API docs, static hosting
+  processor.py        KML/Shapefile reading, validation, CRS, measurements
+  store.py            Transactional SQLite persistence and summaries
+  static/
+    index.html        Workbench structure
+    styles.css        Visual system and responsive layout
+    enhancements.css Dialog, export, and workspace summary styles
+    app.js            Upload, map, filtering, exports, and dataset actions
+examples/
+  reserve-survey.kml  Built-in six-feature demo survey
+Dockerfile
+compose.yaml
+requirements.txt
+```
 
 ## What I learned
 
-Reliable geospatial measurement depends as much on knowing the coordinate reference system and units as on the geometry operation itself. File formats also differ in how they express CRS and layers, so validation and transparent warnings are central to a useful workflow.
+Reliable geospatial measurement depends as much on coordinate reference systems and units as on the geometry operation. KML and Shapefile layers can also differ in how they declare CRS and attributes, so careful validation, explicit assumptions, and feature-level warnings are central to a trustworthy workflow.
 
 ## Future scope
 
 - Background processing and progress events for very large datasets
 - PostGIS storage, user accounts, and team workspaces
-- GeoPackage and GeoJSON input, plus CSV export
-- Better projection choice for datasets spanning multiple UTM zones
-- Per-feature CRS provenance and measurement-method metadata
-- Deployment container, rate limiting, and configurable retention
+- GeoPackage and GeoJSON input, plus richer export filters
+- Projection selection for datasets spanning multiple UTM zones
+- Deployment authentication, rate limiting, and configurable retention
+- Optional geodesic measurements and precision metadata
 
 ## License
 

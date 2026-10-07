@@ -11,6 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/enhancements.css" />
 </head>
 <body>
   <aside class="sidebar">
@@ -23,8 +24,9 @@
   </aside>
 
   <main class="main">
-    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong>Explorer</strong></div><div class="top-actions"><a href="/docs" target="_blank" class="api-link"><span class="tiny-pulse"></span> API DOCS <span>↗</span></a><div class="avatar">TM</div></div></header>
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong>Explorer</strong></div><div class="top-actions"><button id="demo-button" class="demo-button">✦ Try demo</button><a href="/docs" target="_blank" class="api-link"><span class="tiny-pulse"></span> API DOCS <span>↗</span></a><div class="avatar">TM</div></div></header>
     <section class="page-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> SPATIAL ANALYSIS, MADE CLEAR</div><h1>Measure with <em>confidence.</em></h1><p class="intro">Drop in your geospatial data. Get accurate area and distance measurements, instantly.</p></div><div class="projection-chip"><span class="globe">◎</span><span>CRS AWARE<br/><b>PROJECTION ENABLED</b></span></div></section>
+    <section class="portfolio-strip"><span class="portfolio-label">WORKSPACE TOTALS</span><b id="library-files">0 datasets</b><i></i><b id="library-features">0 features processed</b><i></i><b id="library-area">0 ha mapped</b><i></i><b id="library-length">0 km measured</b></section>
 
     <section class="upload-zone" id="drop-zone">
       <input id="file-input" type="file" accept=".kml,.zip,application/vnd.google-earth.kml+xml,application/zip" hidden />
@@ -44,13 +46,14 @@
 
     <section class="workspace-grid">
       <article class="panel map-panel"><header class="panel-heading"><div><div class="panel-overline">GEOGRAPHIC CONTEXT</div><h3>Feature map</h3></div><div class="map-legend"><span><i class="legend-area"></i> Area</span><span><i class="legend-line"></i> Line</span><span><i class="legend-point"></i> Point</span></div></header><div id="map"><div class="map-empty" id="map-empty"><div class="map-empty-icon">⌖</div><b>Your map will appear here</b><span>Upload a file to see its features</span></div></div><div class="map-caption"><span><i></i> <span id="map-label">NO DATA LOADED</span></span><span class="map-attribution">© OpenStreetMap</span></div></article>
-      <article class="panel details-panel"><header class="panel-heading"><div><div class="panel-overline">FILE OVERVIEW</div><h3>Dataset details</h3></div><span class="file-status" id="file-status">IDLE</span></header><div class="detail-list"><div class="detail-row"><span>File name</span><b id="detail-filename">—</b></div><div class="detail-row"><span>Uploaded</span><b id="detail-date">—</b></div><div class="detail-row"><span>Source reference</span><b class="mono" id="detail-source-crs">—</b></div><div class="detail-row"><span>Area projection</span><b class="mono" id="detail-area-crs">—</b></div><div class="detail-row"><span>Distance projection</span><b class="mono" id="detail-length-crs">—</b></div></div><div class="quality-box"><span class="quality-check">✓</span><div><b>Measurement ready</b><p>Coordinates projected before calculating.</p></div></div><button id="download-button" class="download-button" disabled><span>↓</span> Download GeoJSON</button></article>
+      <article class="panel details-panel"><header class="panel-heading"><div><div class="panel-overline">FILE OVERVIEW</div><h3>Dataset details</h3></div><span class="file-status" id="file-status">IDLE</span></header><div class="detail-list"><div class="detail-row"><span>File name</span><b id="detail-filename">—</b></div><div class="detail-row"><span>Uploaded</span><b id="detail-date">—</b></div><div class="detail-row"><span>Source reference</span><b class="mono" id="detail-source-crs">—</b></div><div class="detail-row"><span>Area projection</span><b class="mono" id="detail-area-crs">—</b></div><div class="detail-row"><span>Distance projection</span><b class="mono" id="detail-length-crs">—</b></div></div><div class="quality-box"><span class="quality-check">✓</span><div><b>Measurement ready</b><p>Coordinates projected before calculating.</p></div></div><div class="dataset-actions"><button id="download-button" class="download-button" disabled><span>↓</span> GeoJSON</button><button id="csv-button" class="download-button" disabled><span>▤</span> CSV</button><button id="delete-button" class="delete-button" disabled title="Delete this dataset">Delete</button></div></article>
     </section>
 
     <section class="panel table-panel"><header class="panel-heading table-heading"><div><div class="panel-overline">FEATURE INSPECTOR</div><h3>Measurements <span class="table-total" id="table-total">0</span></h3></div><div class="table-controls"><label class="search-box"><span>⌕</span><input id="search-input" placeholder="Search properties…" /></label><select id="type-filter"><option value="all">All geometry</option><option>Polygon</option><option>MultiPolygon</option><option>LineString</option><option>MultiLineString</option><option>Point</option></select></div></header><div class="table-scroll"><table><thead><tr><th>FEATURE</th><th>GEOMETRY</th><th>NAME / PROPERTIES</th><th>MEASUREMENT</th><th>CRS</th></tr></thead><tbody id="feature-rows"><tr class="table-placeholder"><td colspan="5"><span class="placeholder-mark">⌖</span> Upload a file to inspect its feature measurements</td></tr></tbody></table></div><footer class="table-footer"><span id="table-summary">Showing 0 features</span><div class="pagination"><button id="prev-page" disabled>←</button><span id="page-display">1 / 1</span><button id="next-page" disabled>→</button></div></footer></section>
     <footer class="app-footer"><span>BUILT FOR BETTER SPATIAL DECISIONS</span><span>TerraMetric <b>·</b> v1.0</span></footer>
   </main>
   <div class="toast" id="toast"></div>
+  <dialog id="feature-dialog" class="feature-dialog"><div class="dialog-top"><div><div class="panel-overline">FEATURE INSPECTOR</div><h3 id="dialog-title">Feature details</h3></div><button id="dialog-close" class="dialog-close" aria-label="Close">×</button></div><div id="feature-detail"></div></dialog>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="/static/app.js"></script>
 </body>

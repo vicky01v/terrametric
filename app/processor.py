@@ -5,6 +5,7 @@ import json
 import math
 import tempfile
 import zipfile
+import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import PurePosixPath
 from typing import Any
@@ -13,7 +14,10 @@ import fiona
 from pyproj import CRS, Transformer
 from pyproj.exceptions import CRSError
 from shapely import make_valid
-from shapely.geometry import shape, mapping
+from shapely.geometry import (
+    GeometryCollection, LineString, LinearRing, MultiLineString, MultiPoint,
+    MultiPolygon, Point, Polygon, mapping, shape,
+)
 from shapely.ops import transform
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -22,6 +26,96 @@ MAX_FEATURES = 100_000
 
 class ProcessingError(ValueError):
     pass
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _kml_coordinates(text: str | None) -> list[tuple[float, ...]]:
+    coordinates = []
+    for token in (text or "").split():
+        values = tuple(float(value) for value in token.split(",") if value != "")
+        if len(values) < 2 or not all(math.isfinite(value) for value in values):
+            raise ProcessingError("The KML file contains invalid coordinates.")
+        coordinates.append(values)
+    return coordinates
+
+
+def _kml_geometry(element: ET.Element):
+    kind = _local_name(element.tag)
+    child_by_name = lambda parent, wanted: next((child for child in parent if _local_name(child.tag) == wanted), None)
+    if kind in {"Point", "LineString", "LinearRing"}:
+        node = next((node for node in element.iter() if _local_name(node.tag) == "coordinates"), None)
+        coords = _kml_coordinates(node.text if node is not None else None)
+        if not coords:
+            return None
+        if kind == "Point":
+            return Point(coords[0])
+        return LinearRing(coords) if kind == "LinearRing" else LineString(coords)
+    if kind == "Polygon":
+        outer = child_by_name(element, "outerBoundaryIs")
+        outer_ring = next((node for node in outer.iter() if _local_name(node.tag) == "LinearRing"), None) if outer is not None else None
+        if outer_ring is None:
+            return None
+        shell = _kml_coordinates(next((n.text for n in outer_ring.iter() if _local_name(n.tag) == "coordinates"), None))
+        holes = []
+        for boundary in element:
+            if _local_name(boundary.tag) != "innerBoundaryIs":
+                continue
+            ring = next((node for node in boundary.iter() if _local_name(node.tag) == "LinearRing"), None)
+            if ring is not None:
+                holes.append(_kml_coordinates(next((n.text for n in ring.iter() if _local_name(n.tag) == "coordinates"), None)))
+        return Polygon(shell, holes)
+    if kind == "MultiGeometry":
+        parts = [geom for child in element for geom in [_kml_geometry(child)] if geom is not None and not geom.is_empty]
+        if not parts:
+            return None
+        if all(isinstance(part, Polygon) for part in parts):
+            return MultiPolygon(parts)
+        if all(isinstance(part, (LineString, LinearRing)) for part in parts):
+            return MultiLineString(parts)
+        if all(isinstance(part, Point) for part in parts):
+            return MultiPoint(parts)
+        return GeometryCollection(parts)
+    return None
+
+
+def _read_kml(payload: bytes) -> list[tuple[str, list[dict[str, Any]], CRS | None]]:
+    if b"<!DOCTYPE" in payload.upper() or b"<!ENTITY" in payload.upper():
+        raise ProcessingError("KML files containing document type or entity declarations are not accepted.")
+    try:
+        root = ET.fromstring(payload)
+    except ET.ParseError as exc:
+        raise ProcessingError("The KML file is not valid XML.") from exc
+    placemarks = [element for element in root.iter() if _local_name(element.tag) == "Placemark"]
+    records = []
+    for index, placemark in enumerate(placemarks, start=1):
+        props: dict[str, Any] = {}
+        for element in placemark:
+            name = _local_name(element.tag)
+            if name in {"name", "description"} and element.text:
+                props["Name" if name == "name" else "Description"] = element.text.strip()
+            elif name == "ExtendedData":
+                for item in element.iter():
+                    if _local_name(item.tag) == "Data" and item.attrib.get("name"):
+                        value = next((child.text for child in item if _local_name(child.tag) == "value"), None)
+                        props[item.attrib["name"]] = _json_value(value.strip() if value else None)
+                    elif _local_name(item.tag) == "SimpleData" and item.attrib.get("name"):
+                        props[item.attrib["name"]] = _json_value(item.text.strip() if item.text else None)
+        geometry_element = next((element for element in placemark if _local_name(element.tag) in {"Point", "LineString", "LinearRing", "Polygon", "MultiGeometry"}), None)
+        try:
+            geom = _kml_geometry(geometry_element) if geometry_element is not None else None
+        except (ValueError, TypeError) as exc:
+            raise ProcessingError(f"KML feature {index} has invalid geometry coordinates.") from exc
+        if geom is not None:
+            props.setdefault("_kml_id", placemark.attrib.get("id", str(index)))
+        records.append({"geometry": geom, "properties": props})
+        if len(records) > MAX_FEATURES:
+            raise ProcessingError(f"The upload exceeds the {MAX_FEATURES:,} feature limit.")
+    if not placemarks:
+        raise ProcessingError("No KML placemarks were found in the file.")
+    return [("KML", records, CRS.from_epsg(4326))]
 
 
 def _json_value(value: Any) -> Any:
@@ -59,15 +153,12 @@ def _utm_for(lon: float, lat: float) -> CRS:
 
 def _read_layers(filename: str, payload: bytes) -> list[tuple[str, list[dict[str, Any]], CRS | None]]:
     suffix = filename.lower().rsplit(".", 1)[-1]
+    if suffix == "kml":
+        return _read_kml(payload)
     sources: list[tuple[str, str]] = []
     temp = tempfile.TemporaryDirectory(prefix="terrametric-")
     try:
-        if suffix == "kml":
-            path = f"{temp.name}/upload.kml"
-            with open(path, "wb") as stream:
-                stream.write(payload)
-            sources.append(("KML", path))
-        elif suffix == "zip":
+        if suffix == "zip":
             try:
                 archive = zipfile.ZipFile(__import__("io").BytesIO(payload))
             except zipfile.BadZipFile as exc:
@@ -112,8 +203,7 @@ def _read_layers(filename: str, payload: bytes) -> list[tuple[str, list[dict[str
         feature_total = 0
         for layer_name, path in sources:
             try:
-                open_options = {"driver": "KML"} if suffix == "kml" else {}
-                with fiona.open(path, **open_options) as collection:
+                with fiona.open(path) as collection:
                     records = []
                     for feature in collection:
                         geometry_data = feature.get("geometry")
@@ -153,7 +243,16 @@ def process_upload(filename: str, payload: bytes) -> dict[str, Any]:
     elif any(crs and not crs.equals(source_crs) for _, _, crs in layers):
         warnings.append("Layers declare different coordinate reference systems. All layers were interpreted using the first declared CRS.")
 
-    valid_geometries = [row["geometry"] for _, records, _ in layers for row in records if row["geometry"] and not row["geometry"].is_empty]
+    valid_geometries = []
+    for _, records, layer_crs in layers:
+        layer_crs = layer_crs or source_crs
+        to_source = Transformer.from_crs(layer_crs, source_crs, always_xy=True).transform if not layer_crs.equals(source_crs) else None
+        for record in records:
+            geom = record["geometry"]
+            if geom is not None and to_source:
+                geom = transform(to_source, geom)
+            if geom is not None and not geom.is_empty:
+                valid_geometries.append(geom)
     if not valid_geometries:
         raise ProcessingError("No non-empty geometries were found in the uploaded file.")
     fixed_geometries = [make_valid(g) if not g.is_valid else g for g in valid_geometries]

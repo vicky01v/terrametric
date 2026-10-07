@@ -222,5 +222,6 @@
   let searchTimer;
   $('search-input').addEventListener('input', event => { clearTimeout(searchTimer); state.search = event.target.value.trim(); searchTimer = setTimeout(() => { state.page = 1; loadMeasurements(); }, 250); });
 
-  refreshRecent();
+  if (new URLSearchParams(window.location.search).get('demo') === '1') loadDemo();
+  else refreshRecent();
 })();

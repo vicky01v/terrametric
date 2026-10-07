@@ -78,9 +78,12 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.post("/api/demo/", status_code=201, tags=["Files"])
 async def load_demo():
+    existing = next((item for item in store.list_files(100) if item["filename"] == "Northstar-Reserve-demo.kml"), None)
+    if existing:
+        return existing
     try:
         result = process_upload(DEMO_FILE.name, DEMO_FILE.read_bytes())
-        return store.create("reserve-survey.kml", result)
+        return store.create("Northstar-Reserve-demo.kml", result)
     except ProcessingError as exc:
         raise HTTPException(500, "The bundled demo dataset could not be processed.") from exc
 

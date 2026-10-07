@@ -7,6 +7,7 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 from collections import Counter
+from pathlib import Path
 from pathlib import PurePosixPath
 from typing import Any
 

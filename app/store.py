@@ -106,7 +106,7 @@ def get_feature(file_id: str, feature_id: int) -> dict[str, Any] | None:
 def dashboard_summary() -> dict[str, Any]:
     with connect() as db:
         counts = db.execute("SELECT COUNT(*) AS files, COALESCE(SUM(feature_count), 0) AS features FROM files").fetchone()
-        rows = db.execute("SELECT body FROM features").fetchall()
+        rows = db.execute("SELECT features.body FROM features JOIN files ON files.id=features.file_id").fetchall()
     area_m2 = length_m = 0.0
     for row in rows:
         measurement = json.loads(row["body"])["measurement"]
